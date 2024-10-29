@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { intAsString } from '../utils';
+import { Directions, StateUpdateSchema } from '../models/schema/action';
 
 export const router = new Hono();
 /**
@@ -67,6 +68,7 @@ router.get(
   (c) => {
     const { id } = c.req.valid('param');
     const robot = robots.find((r) => r.id === id);
+
     if (!robot) {
       return c.json({ message: 'Robot with id ' + id + ' not found' }, 404);
     }
@@ -97,17 +99,18 @@ router.get(
  *         description: ID of the robot
  *         schema:
  *           type: integer
- *       - in: body
- *         name: body
- *         required: true
- *         description: The direction in which the robot should move
- *         schema:
- *           type: object
- *           properties:
- *             direction:
- *               type: string
- *               description: Direction in which the robot should move. Valid values are up, down, left, right.
- *               example: "up"
+ *     requestBody:
+ *       required: true
+ *       description: The direction in which the robot should move
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               direction:
+ *                 type: string
+ *                 description: Direction in which the robot should move. Valid values are up, down, left, right.
+ *                 example: "up"
  *     responses:
  *       200:
  *         description: Robot successfully moved
@@ -118,39 +121,36 @@ router.get(
  *       422:
  *         description: Invalid input value for direction. Direction must be up, down, left or right
  */
-router.post('/:id/move', (req, res) => {
-  const robot = robots.find((r) => r.id === parseInt(req.params.id));
-  const { direction } = req.body;
-  const validDirections = ['up', 'down', 'left', 'right'];
+router.post(
+  '/:id/move',
+  zValidator(
+    'param',
+    z.object({
+      id: intAsString
+    })
+  ),
+  zValidator(
+    'json',
+    z.object({
+      direction: Directions
+    })
+  ),
+  (c) => {
+    const { id } = c.req.valid('param');
+    const robot = robots.find((r) => r.id === id);
+    if (!robot) {
+      return c.json({ message: 'Robot with id ' + id + ' not found' }, 404);
+    }
 
-  if (!robot) {
-    res
-      .status(404)
-      .json({ message: 'Robot with id ' + req.params.id + ' not found' });
-    return;
-  }
+    const { direction } = c.req.valid('json');
+    robot.move(direction);
 
-  if (!direction) {
-    res.status(400).json({
-      error: 'Invalid request body',
-      message:
-        'Direction cannot be empty. Please provide a valid direction (up, down, left, right).'
+    return c.json({
+      message: `Robot moved ${direction}`,
+      position: robot.position
     });
-    return;
   }
-
-  if (!validDirections.includes(direction)) {
-    res.status(422).json({
-      error: 'Invalid input value for direction',
-      message:
-        'The body does not contain a valid direction (up, down, left, right).',
-      received: direction
-    });
-    return;
-  }
-  robot.move(direction);
-  res.json({ message: `Robot moved ${direction}`, position: robot.position });
-});
+);
 
 /**
  * @swagger
@@ -179,39 +179,42 @@ router.post('/:id/move', (req, res) => {
  *       404:
  *         description: Robot or Item with id {id} not found
  */
-router.post('/:id/pickup/:itemId', (req, res) => {
-  const robot = robots.find((r) => r.id === parseInt(req.params.id));
-  //const { itemId } = req.params;
-  const item = items.find((r) => r.id === parseInt(req.params.itemId));
+router.post(
+  '/:id/pickup/:itemId',
+  zValidator(
+    'param',
+    z.object({
+      id: intAsString,
+      itemId: intAsString
+    })
+  ),
+  (c) => {
+    const { id, itemId } = c.req.valid('param');
+    const robot = robots.find((r) => r.id === id);
 
-  if (!robot) {
-    res
-      .status(404)
-      .json({ message: `Robot with id ${req.params.id} not found` });
-    return;
-  }
+    if (!robot) {
+      return c.json({ message: `Robot with id ${id} not found` }, 404);
+    }
 
-  if (!item) {
-    res
-      .status(404)
-      .json({ message: `Item with id ${req.params.itemId} not found` });
-    return;
-  }
+    const item = items.find((r) => r.id === itemId);
+    if (!item) {
+      return c.json({ message: `Item with id ${itemId} not found` }, 404);
+    }
 
-  if (item.robotId !== null) {
-    res.status(400).json({
-      message: `Item with id ${req.params.itemId} already in Inventory of Robot with id ${item.robotId}`
+    if (item.robotId !== null) {
+      return c.json({
+        message: `Item with id ${itemId} already in Inventory of Robot with id ${item.robotId}`
+      });
+    }
+
+    item.setInInventory(robot.id);
+    robot.pickup(item.id);
+    return c.json({
+      message: `Item ${item.id} picked up`,
+      inventory: robot.inventory
     });
-    return;
   }
-
-  item.setInInventory(robot.id);
-  robot.pickup(item.id);
-  res.json({
-    message: `Item ${item.id} picked up`,
-    inventory: robot.inventory
-  });
-});
+);
 
 /**
  * @swagger
@@ -238,37 +241,47 @@ router.post('/:id/pickup/:itemId', (req, res) => {
  *       404:
  *         description: Robot or Item with id {id} not found
  */
-router.post('/:id/putdown/:itemId', (req, res) => {
-  const robot = robots.find((r) => r.id === parseInt(req.params.id));
-  if (!robot) {
-    res
-      .status(404)
-      .json({ message: 'Robot with id ' + req.params.id + ' not found' });
-    return;
-  }
+router.post(
+  '/:id/putdown/:itemId',
+  zValidator(
+    'param',
+    z.object({
+      id: intAsString,
+      itemId: intAsString
+    })
+  ),
+  (c) => {
+    const { id, itemId } = c.req.valid('param');
+    const robot = robots.find((r) => r.id === id);
+    if (!robot) {
+      return c.json({ message: `Robot with id ${id} not found` }, 404);
+    }
 
-  const item = items.find((r) => r.id === parseInt(req.params.itemId));
-  if (!item) {
-    res
-      .status(404)
-      .json({ message: `Item with id ${req.params.itemId} not found` });
-    return;
-  }
+    const item = items.find((r) => r.id === itemId);
+    if (!item) {
+      return c.json({ message: `Item with id ${itemId} not found` }, 404);
+    }
 
-  const itemInInventory = robot.inventory.find((id) => id === item.id);
-  if (!itemInInventory) {
-    res.status(400).json({
-      error: 'Item Not Found',
-      message: `Item with id ${item.id} is not in the inventory of robot ${req.params.id}.`
+    const itemInInventory = robot.inventory.find((id) => id === item.id);
+    if (!itemInInventory) {
+      return c.json(
+        {
+          error: 'Item Not Found',
+          message: `Item with id ${itemId} is not in the inventory of robot ${id}.`
+        },
+        404
+      );
+    }
+
+    item.setNotInInventory(robot.position.x, robot.position.y);
+
+    robot.putdown(item.id);
+    return c.json({
+      message: `Item ${item.id} put down`,
+      inventory: robot.inventory
     });
-    return;
   }
-
-  item.setNotInInventory(robot.position.x, robot.position.y);
-
-  robot.putdown(item.id);
-  res.json({ message: `Item ${item.id} put down`, inventory: robot.inventory });
-});
+);
 
 /**
  * @swagger
@@ -309,22 +322,28 @@ router.post('/:id/putdown/:itemId', (req, res) => {
  *       404:
  *         description: Robot with id {id} not found
  */
-router.patch('/:id/state', (req, res) => {
-  const robot = robots.find((r) => r.id === parseInt(req.params.id));
-  const { energy, position } = req.body;
+router.patch(
+  '/:id/state',
+  zValidator(
+    'param',
+    z.object({
+      id: intAsString
+    })
+  ),
+  zValidator('json', StateUpdateSchema),
+  (c) => {
+    const { id } = c.req.valid('param');
+    const robot = robots.find((r) => r.id === id);
 
-  if (!robot) {
-    res
-      .status(404)
-      .json({ message: 'Robot with id ' + req.params.id + ' not found' });
-    return;
+    if (!robot) {
+      return c.json({ message: `Robot with id ${id} not found` }, 404);
+    }
+
+    const { energy, position } = c.req.valid('json');
+    robot.updateState({ energy, position });
+    return c.json({ message: 'State updated', robot });
   }
-
-  //TODO falsche Formatierung von body
-
-  robot.updateState({ energy, position });
-  res.json({ message: 'State updated', robot });
-});
+);
 
 /**
  * @swagger
@@ -359,58 +378,54 @@ router.patch('/:id/state', (req, res) => {
  *       404:
  *         description: Robot with id {id} not found
  */
-router.get('/:id/actions', (req, res) => {
-  const robot = robots.find((r) => r.id === parseInt(req.params.id));
-  if (!robot) {
-    res
-      .status(404)
-      .json({ message: `Robot with id ${req.params.id} not found` });
-    return;
-  }
+router.get(
+  '/:id/actions',
+  zValidator(
+    'param',
+    z.object({
+      id: intAsString
+    })
+  ),
+  zValidator(
+    'query',
+    z.object({
+      page: intAsString
+        .refine((num) => z.number().int().gte(1).safeParse(num).success)
+        .default('1'),
+      size: intAsString
+        .refine((num) => z.number().int().gte(1).safeParse(num).success)
+        .default('5')
+    })
+  ),
+  (c) => {
+    const { id } = c.req.valid('param');
 
-  if (
-    req.query.page &&
-    (typeof req.query.page !== 'string' || !isNaN(parseInt(req.query.page)))
-  ) {
-    res.status(400).json({
-      error: 'Invalid query',
-      message: 'Page must be a number'
-    });
-    return;
-  }
-  if (
-    req.query.size &&
-    (typeof req.query.size !== 'string' || !isNaN(parseInt(req.query.size)))
-  ) {
-    res.status(400).json({
-      error: 'Invalid query',
-      message: 'Size must be a number'
-    });
-    return;
-  }
-
-  // ?page=23
-
-  const page = parseInt(req.query.page || '1') || 1;
-  const size = parseInt(req.query.size || '5') || 5;
-  const startIndex = (page - 1) * size;
-  const paginatedActions = robot.actions.slice(startIndex, startIndex + size);
-
-  res.json({
-    page,
-    size,
-    totalActions: robot.actions.length,
-    actions: paginatedActions,
-    links: {
-      self: `/robot/${robot.id}/actions?page=${page}&size=${size}`,
-      next: `/robot/${robot.id}/actions?page=${page + 1}&size=${size}`,
-      previous:
-        page > 1
-          ? `/robot/${robot.id}/actions?page=${page - 1}&size=${size}`
-          : null
+    const robot = robots.find((r) => r.id === id);
+    if (!robot) {
+      return c.json({ message: `Robot with id ${id} not found` });
     }
-  });
-});
+
+    const { page, size } = c.req.valid('query');
+
+    const startIndex = (page - 1) * size;
+    const paginatedActions = robot.actions.slice(startIndex, startIndex + size);
+
+    return c.json({
+      page,
+      size,
+      totalActions: robot.actions.length,
+      actions: paginatedActions,
+      links: {
+        self: `/robot/${robot.id}/actions?page=${page}&size=${size}`,
+        next: `/robot/${robot.id}/actions?page=${page + 1}&size=${size}`,
+        previous:
+          page > 1
+            ? `/robot/${robot.id}/actions?page=${page - 1}&size=${size}`
+            : null
+      }
+    });
+  }
+);
 
 /**
  * @swagger
@@ -439,25 +454,36 @@ router.get('/:id/actions', (req, res) => {
  *       404:
  *         description: Robot with id {id} not found
  */
-router.post('/:id/attack/:targetId', (req, res) => {
-  const attacker = robots.find((r) => r.id === parseInt(req.params.id));
-  const target = robots.find((r) => r.id === parseInt(req.params.targetId));
+router.post(
+  '/:id/attack/:targetId',
+  zValidator(
+    'param',
+    z.object({
+      id: intAsString,
+      targetId: intAsString
+    })
+  ),
+  (c) => {
+    const { id, targetId } = c.req.valid('param');
+    const attacker = robots.find((r) => r.id === id);
+    const target = robots.find((r) => r.id === targetId);
 
-  if (!attacker || !target) {
-    res
-      .status(404)
-      .json({ message: `Robot with id ${req.params.id} not found` });
-    return;
-  }
+    if (!attacker || !target) {
+      return c.json(
+        { message: `Robot with id ${id} or id ${targetId} not found` },
+        404
+      );
+    }
 
-  try {
-    attacker.attack(target);
-    res.json({
-      message: 'Attack executed',
-      attackerEnergy: attacker.energy,
-      targetEnergy: target.energy
-    });
-  } catch (error) {
-    res.status(400).json({ message: (error as any).message });
+    try {
+      attacker.attack(target);
+      return c.json({
+        message: 'Attack executed',
+        attackerEnergy: attacker.energy,
+        targetEnergy: target.energy
+      });
+    } catch (error) {
+      return c.json({ message: (error as any).message }, 400);
+    }
   }
-});
+);

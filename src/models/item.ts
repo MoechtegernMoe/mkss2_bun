@@ -1,4 +1,4 @@
-import { Position } from './robot';
+import { Position } from './schema/position';
 
 export class Item {
   id: number;

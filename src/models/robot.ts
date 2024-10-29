@@ -1,38 +1,5 @@
-export interface Position {
-  x: number;
-  y: number;
-}
-
-export interface MoveAction {
-  action: 'move';
-  direction: string;
-}
-export interface PickupAction {
-  action: 'pickup';
-  item: number;
-}
-export interface PutdownAction {
-  action: 'putdown';
-  item: number;
-}
-export interface AttackAction {
-  action: 'attack';
-  targetId: number;
-}
-export interface StateUpdateAction {
-  action: 'stateUpdate';
-  newState: {
-    energy?: number;
-    position?: Position;
-  };
-}
-
-export type Actions =
-  | MoveAction
-  | PickupAction
-  | PutdownAction
-  | AttackAction
-  | StateUpdateAction;
+import { Actions, Direction, StateUpdateAction } from './schema/action';
+import { Position } from './schema/position';
 
 export class Robot {
   id: number;
@@ -49,7 +16,7 @@ export class Robot {
     this.actions = [];
   }
 
-  move(direction: string) {
+  move(direction: Direction) {
     switch (direction) {
       case 'up':
         this.position.y += 1;
