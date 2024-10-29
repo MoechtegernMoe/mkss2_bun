@@ -1,9 +1,11 @@
-import express from 'express';
-
 import { robots } from '../data/robotsData';
 import { items } from '../data/itemsData';
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
+import { intAsString } from '../utils';
 
-export const router = express.Router();
+export const router = new Hono();
 /**
  * @swagger
  * /robot/{id}/status:
@@ -54,26 +56,33 @@ export const router = express.Router();
  *       404:
  *         description: Robot with id {id} not found
  */
-router.get('/:id/status', (req, res) => {
-  const robot = robots.find((r) => r.id === parseInt(req.params.id));
-  if (!robot) {
-    res
-      .status(404)
-      .json({ message: 'Robot with id ' + req.params.id + ' not found' });
-    return;
-  }
-
-  res.json({
-    id: robot.id,
-    position: robot.position,
-    energy: robot.energy,
-    inventory: robot.inventory,
-    links: {
-      self: `/robot/${robot.id}/status`,
-      actions: `/robot/${robot.id}/actions`
+router.get(
+  '/:id/status',
+  zValidator(
+    'param',
+    z.object({
+      id: intAsString
+    })
+  ),
+  (c) => {
+    const { id } = c.req.valid('param');
+    const robot = robots.find((r) => r.id === id);
+    if (!robot) {
+      return c.json({ message: 'Robot with id ' + id + ' not found' }, 404);
     }
-  });
-});
+
+    return c.json({
+      id: robot.id,
+      position: robot.position,
+      energy: robot.energy,
+      inventory: robot.inventory,
+      links: {
+        self: `/robot/${robot.id}/status`,
+        actions: `/robot/${robot.id}/actions`
+      }
+    });
+  }
+);
 
 /**
  * @swagger

@@ -1,14 +1,8 @@
-import express from 'express';
-import swaggerUi from 'swagger-ui-express';
-
-import { swaggerDocs } from './src/config/swaggerConfig';
-
 import { router as robotRouter } from './src/api/robotRoutes';
+import { Hono } from 'hono';
 
-export const app = express();
+export const app = new Hono();
 
-app.use(express.json());
+app.route('/robot', robotRouter);
 
-app.use('/robot', robotRouter);
-
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+//app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
