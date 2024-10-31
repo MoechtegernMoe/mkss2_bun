@@ -124,7 +124,7 @@ const moveRoute = createRoute({
   path: '/{id}/move',
   summary: 'Move the robot',
   description:
-    'Moves the robot in the specified direction. The direction cannot be empty and must be one of the valid options up, down, left, or right.',
+    'Moves the robot in the specified direction. The direction cannot be empty and must be one of the valid options up, down, left, or right',
   request: {
     params: z.object({
       id: intAsString.openapi({
@@ -185,7 +185,7 @@ router.openapi(moveRoute, (c) => {
 
   return c.json(
     {
-      message: 'Robot successfully moved',
+      message: `Robot moved ${direction}`,
       position: robot.position
     },
     200
@@ -257,18 +257,18 @@ router.openapi(postPickupItem, (c) => {
   const robot = robots.find((r) => r.id === id);
 
   if (!robot) {
-    return c.json({ message: `Robot with id ${id} not found` }, 404);
+    return c.json({ message: `Robot with ID ${id} not found` }, 404);
   }
 
   const item = items.find((r) => r.id === itemId);
   if (!item) {
-    return c.json({ message: `Item with id ${itemId} not found` }, 404);
+    return c.json({ message: `Item with ID ${itemId} not found` }, 404);
   }
 
   if (item.robotId !== null) {
     return c.json(
       {
-        message: `Item with id ${itemId} already in Inventory of Robot with id ${item.robotId}`
+        message: `Item with ID ${itemId} already in Inventory of Robot with ID ${item.robotId}`
       },
       409
     );
@@ -349,12 +349,12 @@ router.openapi(postPutdownItem, (c) => {
   const { id, itemId } = c.req.valid('param');
   const robot = robots.find((r) => r.id === id);
   if (!robot) {
-    return c.json({ message: `Robot with id ${id} not found` }, 404);
+    return c.json({ message: `Robot with ID ${id} not found` }, 404);
   }
 
   const item = items.find((r) => r.id === itemId);
   if (!item) {
-    return c.json({ message: `Item with id ${itemId} not found` }, 404);
+    return c.json({ message: `Item with ID ${itemId} not found` }, 404);
   }
 
   const itemInInventory = robot.inventory.find((id) => id === item.id);
@@ -362,7 +362,7 @@ router.openapi(postPutdownItem, (c) => {
     return c.json(
       {
         error: 'Item Not Found',
-        message: `Item with id ${itemId} is not in the inventory of robot ${id}.`
+        message: `Item with ID ${itemId} is not in the inventory of robot with ID ${id}`
       },
       409
     );
@@ -399,8 +399,8 @@ const patchRobotState = createRoute({
       content: {
         'application/json': {
           schema: z.object({
-            energy: z.number().openapi({ example: 90 }),
-            position: PositionSchema.openapi('Position')
+            energy: z.number().openapi({ example: 90 }).optional(),
+            position: PositionSchema.openapi('Position').optional()
           })
         }
       },
@@ -456,7 +456,7 @@ router.openapi(patchRobotState, (c) => {
   const robot = robots.find((r) => r.id === id);
 
   if (!robot) {
-    return c.json({ message: `Robot with id ${id} not found` }, 404);
+    return c.json({ message: `Robot with ID ${id} not found` }, 404);
   }
 
   const { energy, position } = c.req.valid('json');
