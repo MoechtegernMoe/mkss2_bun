@@ -1,79 +1,111 @@
 import { robots } from '../data/robotsData';
 import { items } from '../data/itemsData';
-import { Hono } from 'hono';
-import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
 import { intAsString } from '../utils';
-import { Directions, StateUpdateSchema } from '../models/schema/action';
+import { Directions } from '../models/schema/action';
+import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
+import { PositionSchema } from '../models/schema/position';
 
-export const router = new Hono();
-/**
- * @swagger
- * /robot/{id}/status:
- *   get:
- *     summary: Get robot status
- *     description: Returns the current status of the robot as JSON, including ID (id), position (position), energy level (energy), and inventory (inventory).
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the robot
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: Successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 id:
- *                   type: integer
- *                   example: 1
- *                 position:
- *                   type: object
- *                   properties:
- *                     x:
- *                       type: integer
- *                       example: 5
- *                     y:
- *                       type: integer
- *                       example: 5
- *                 energy:
- *                   type: integer
- *                   example: 100
- *                 inventory:
- *                   type: array
- *                   items:
- *                     type: string
- *                 links:
- *                   type: object
- *                   properties:
- *                     self:
- *                       type: string
- *                     actions:
- *                       type: string
- *       404:
- *         description: Robot with id {id} not found
- */
-router.get(
-  '/:id/status',
-  zValidator(
-    'param',
-    z.object({
-      id: intAsString
-    })
-  ),
-  (c) => {
-    const { id } = c.req.valid('param');
-    const robot = robots.find((r) => r.id === id);
+export const router = new OpenAPIHono();
 
-    if (!robot) {
-      return c.json({ message: 'Robot with id ' + id + ' not found' }, 404);
+export const zod400 = {
+  content: {
+    'application/json': {
+      schema: z.object({
+        success: z.boolean().openapi({
+          example: false
+        }),
+        error: z
+          .object({
+            issues: z.array(
+              z
+                .object({
+                  message: z
+                    .string()
+                    .openapi({ example: 'Expected string, received number' }),
+                  code: z.string().openapi({ example: 'invalid_type' })
+                })
+                .passthrough()
+            ),
+            name: z.string().openapi({ example: 'ZodError' })
+          })
+          .optional()
+          .openapi('ZodError')
+      }),
+      example: {
+        success: false,
+        error: {
+          name: 'ZodError',
+          issues: []
+        }
+      }
     }
+  },
+  description: 'ZodError'
+};
 
-    return c.json({
+const getRobotStatusRoute = createRoute({
+  method: 'get',
+  path: '/{id}/status',
+  summary: 'Get robot status',
+  description:
+    'Returns the current status of the robot as JSON, including ID (id), position (position), energy level (energy), and inventory (inventory)',
+  request: {
+    params: z
+      .object({
+        id: intAsString
+      })
+      .openapi({
+        param: {
+          name: 'id',
+          in: 'path'
+        },
+        example: {
+          id: '1'
+        }
+      })
+  },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            id: z.number(),
+            position: PositionSchema.openapi('Position'),
+            energy: z.number(),
+            inventory: z.array(z.number()),
+            links: z.object({
+              self: z.string(),
+              actions: z.string()
+            })
+          })
+        }
+      },
+      description: 'Robot status successfully returned'
+    },
+    400: zod400,
+    404: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Robot with the specified ID not found'
+    }
+  }
+});
+
+router.openapi(getRobotStatusRoute, (c) => {
+  const { id } = c.req.valid('param');
+  const robot = robots.find((r) => r.id === id);
+
+  if (!robot) {
+    return c.json({ message: 'Robot with id ' + id + ' not found' }, 404);
+  }
+
+  return c.json(
+    {
       id: robot.id,
       position: robot.position,
       energy: robot.energy,
@@ -82,313 +114,383 @@ router.get(
         self: `/robot/${robot.id}/status`,
         actions: `/robot/${robot.id}/actions`
       }
-    });
-  }
-);
+    },
+    200
+  );
+});
 
-/**
- * @swagger
- * /robot/{id}/move:
- *   post:
- *     summary: Move the robot
- *     description: Moves the robot in the specified direction. The direction cannot be empty and must be one of the valid options up, down, left, or right.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the robot
- *         schema:
- *           type: integer
- *     requestBody:
- *       required: true
- *       description: The direction in which the robot should move
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               direction:
- *                 type: string
- *                 description: Direction in which the robot should move. Valid values are up, down, left, right.
- *                 example: "up"
- *     responses:
- *       200:
- *         description: Robot successfully moved
- *       400:
- *         description: Invalid request body. Direction cannot be empty
- *       404:
- *         description: Robot with the specified ID not found
- *       422:
- *         description: Invalid input value for direction. Direction must be up, down, left or right
- */
-router.post(
-  '/:id/move',
-  zValidator(
-    'param',
-    z.object({
-      id: intAsString
-    })
-  ),
-  zValidator(
-    'json',
-    z.object({
-      direction: Directions
-    })
-  ),
-  (c) => {
-    const { id } = c.req.valid('param');
-    const robot = robots.find((r) => r.id === id);
-    if (!robot) {
-      return c.json({ message: 'Robot with id ' + id + ' not found' }, 404);
+const moveRoute = createRoute({
+  method: 'post',
+  path: '/{id}/move',
+  summary: 'Move the robot',
+  description:
+    'Moves the robot in the specified direction. The direction cannot be empty and must be one of the valid options up, down, left, or right.',
+  request: {
+    params: z.object({
+      id: intAsString.openapi({
+        param: {
+          name: 'id',
+          in: 'path'
+        },
+        example: '1'
+      })
+    }),
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            direction: Directions
+          })
+        }
+      },
+      required: true,
+      description: 'The direction in which the robot should move'
     }
+  },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string(),
+            position: PositionSchema.openapi('Position')
+          })
+        }
+      },
+      description: 'Robot successfully moved'
+    },
+    400: zod400,
+    404: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Robot with the specified ID not found'
+    }
+  }
+});
 
-    const { direction } = c.req.valid('json');
-    robot.move(direction);
+router.openapi(moveRoute, (c) => {
+  const { id } = c.req.valid('param');
+  const robot = robots.find((r) => r.id === id);
+  if (!robot) {
+    return c.json({ message: 'Robot with id ' + id + ' not found' }, 404);
+  }
 
-    return c.json({
-      message: `Robot moved ${direction}`,
+  const { direction } = c.req.valid('json');
+  robot.move(direction);
+
+  return c.json(
+    {
+      message: 'Robot successfully moved',
       position: robot.position
-    });
-  }
-);
+    },
+    200
+  );
+});
 
-/**
- * @swagger
- * /robot/{id}/pickup/{itemId}:
- *   post:
- *     summary: Pickup item
- *     description: The robot picks up an item with the specified ID. If successful, the item is added to its inventory.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the robot
- *         schema:
- *           type: integer
- *       - in: path
- *         name: itemId
- *         required: true
- *         description: ID of the item
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: Item successfully picked up
- *       400:
- *         description: Item with id already in Inventory of Robot with id
- *       404:
- *         description: Robot or Item with id {id} not found
- */
-router.post(
-  '/:id/pickup/:itemId',
-  zValidator(
-    'param',
-    z.object({
-      id: intAsString,
-      itemId: intAsString
+const postPickupItem = createRoute({
+  method: 'post',
+  path: '/{id}/pickup/{itemId}',
+  summary: 'Pickup item',
+  description:
+    'The robot picks up an item with the specified ID. If successful, the item is added to its inventory.',
+  request: {
+    params: z.object({
+      id: intAsString.openapi({
+        param: {
+          name: 'id',
+          in: 'path'
+        },
+        example: '1'
+      }),
+      itemId: intAsString.openapi({
+        param: {
+          name: 'itemId',
+          in: 'path'
+        },
+        example: '1'
+      })
     })
-  ),
-  (c) => {
-    const { id, itemId } = c.req.valid('param');
-    const robot = robots.find((r) => r.id === id);
-
-    if (!robot) {
-      return c.json({ message: `Robot with id ${id} not found` }, 404);
+  },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string(),
+            inventory: z.array(z.number())
+          })
+        }
+      },
+      description: 'Item successfully picked up'
+    },
+    400: zod400,
+    404: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Robot or Item with the specified ID not found'
+    },
+    409: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Item already in Inventory of Robot'
     }
+  }
+});
 
-    const item = items.find((r) => r.id === itemId);
-    if (!item) {
-      return c.json({ message: `Item with id ${itemId} not found` }, 404);
-    }
+router.openapi(postPickupItem, (c) => {
+  const { id, itemId } = c.req.valid('param');
+  const robot = robots.find((r) => r.id === id);
 
-    if (item.robotId !== null) {
-      return c.json({
+  if (!robot) {
+    return c.json({ message: `Robot with id ${id} not found` }, 404);
+  }
+
+  const item = items.find((r) => r.id === itemId);
+  if (!item) {
+    return c.json({ message: `Item with id ${itemId} not found` }, 404);
+  }
+
+  if (item.robotId !== null) {
+    return c.json(
+      {
         message: `Item with id ${itemId} already in Inventory of Robot with id ${item.robotId}`
-      });
-    }
+      },
+      409
+    );
+  }
 
-    item.setInInventory(robot.id);
-    robot.pickup(item.id);
-    return c.json({
+  item.setInInventory(robot.id);
+  robot.pickup(item.id);
+  return c.json(
+    {
       message: `Item ${item.id} picked up`,
       inventory: robot.inventory
-    });
-  }
-);
+    },
+    200
+  );
+});
 
-/**
- * @swagger
- * /robot/{id}/putdown/{itemId}:
- *   post:
- *     summary: Put down item
- *     description: Puts down an item from the robot's inventory. When put down, the item is placed on the current field.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the robot
- *         schema:
- *           type: integer
- *       - in: path
- *         name: itemId
- *         required: true
- *         description: ID of the item
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: Item successfully put down
- *       404:
- *         description: Robot or Item with id {id} not found
- */
-router.post(
-  '/:id/putdown/:itemId',
-  zValidator(
-    'param',
-    z.object({
-      id: intAsString,
-      itemId: intAsString
-    })
-  ),
-  (c) => {
-    const { id, itemId } = c.req.valid('param');
-    const robot = robots.find((r) => r.id === id);
-    if (!robot) {
-      return c.json({ message: `Robot with id ${id} not found` }, 404);
-    }
-
-    const item = items.find((r) => r.id === itemId);
-    if (!item) {
-      return c.json({ message: `Item with id ${itemId} not found` }, 404);
-    }
-
-    const itemInInventory = robot.inventory.find((id) => id === item.id);
-    if (!itemInInventory) {
-      return c.json(
-        {
-          error: 'Item Not Found',
-          message: `Item with id ${itemId} is not in the inventory of robot ${id}.`
+const postPutdownItem = createRoute({
+  method: 'post',
+  path: '/{id}/putdown/{itemId}',
+  summary: 'Put item down',
+  description:
+    "Puts down an item from the robot's inventory. When put down, the item is placed on the current field",
+  request: {
+    params: z.object({
+      id: intAsString.openapi({
+        param: {
+          name: 'id',
+          in: 'path'
         },
-        404
-      );
+        example: '1'
+      }),
+      itemId: intAsString.openapi({
+        param: {
+          name: 'itemId',
+          in: 'path'
+        },
+        example: '1'
+      })
+    })
+  },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string(),
+            inventory: z.array(z.number())
+          })
+        }
+      },
+      description: 'Item successfully put down'
+    },
+    400: zod400,
+    404: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Robot or Item with the specified ID not found'
+    },
+    409: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Item is not in Inventory of Robot'
     }
+  }
+});
 
-    item.setNotInInventory(robot.position.x, robot.position.y);
+router.openapi(postPutdownItem, (c) => {
+  const { id, itemId } = c.req.valid('param');
+  const robot = robots.find((r) => r.id === id);
+  if (!robot) {
+    return c.json({ message: `Robot with id ${id} not found` }, 404);
+  }
 
-    robot.putdown(item.id);
-    return c.json({
+  const item = items.find((r) => r.id === itemId);
+  if (!item) {
+    return c.json({ message: `Item with id ${itemId} not found` }, 404);
+  }
+
+  const itemInInventory = robot.inventory.find((id) => id === item.id);
+  if (!itemInInventory) {
+    return c.json(
+      {
+        error: 'Item Not Found',
+        message: `Item with id ${itemId} is not in the inventory of robot ${id}.`
+      },
+      409
+    );
+  }
+
+  item.setNotInInventory(robot.position.x, robot.position.y);
+
+  robot.putdown(item.id);
+  return c.json(
+    {
       message: `Item ${item.id} put down`,
       inventory: robot.inventory
-    });
-  }
-);
+    },
+    200
+  );
+});
 
-/**
- * @swagger
- * /robot/{id}/state:
- *   patch:
- *     summary: Update robot state
- *     description: Updates the state of the robot (e.g., energy level).
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the robot
- *         schema:
- *           type: integer
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               energy:
- *                 type: integer
- *                 description: New energy level of the robot
- *                 example: 90
- *               position:
- *                 type: object
- *                 properties:
- *                   x:
- *                     type: integer
- *                     example: 10
- *                   y:
- *                     type: integer
- *                     example: 20
- *     responses:
- *       200:
- *         description: State successfully updated
- *       404:
- *         description: Robot with id {id} not found
- */
-router.patch(
-  '/:id/state',
-  zValidator(
-    'param',
-    z.object({
-      id: intAsString
-    })
-  ),
-  zValidator('json', StateUpdateSchema),
-  (c) => {
-    const { id } = c.req.valid('param');
-    const robot = robots.find((r) => r.id === id);
-
-    if (!robot) {
-      return c.json({ message: `Robot with id ${id} not found` }, 404);
+const patchRobotState = createRoute({
+  method: 'patch',
+  path: '/{id}/state',
+  summary: 'Update robot state',
+  description: 'Updates the state of the robot (e.g., energy level).',
+  request: {
+    params: z.object({
+      id: intAsString.openapi({
+        param: {
+          name: 'id',
+          in: 'path'
+        },
+        example: '1'
+      })
+    }),
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            energy: z.number().openapi({ example: 90 }),
+            position: PositionSchema.openapi('Position')
+          })
+        }
+      },
+      required: true,
+      description: 'New energy level or position of the robot'
     }
-
-    const { energy, position } = c.req.valid('json');
-    robot.updateState({ energy, position });
-    return c.json({ message: 'State updated', robot });
+  },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string(),
+            robot: z
+              .object({
+                id: z.number(),
+                position: PositionSchema.openapi('Position'),
+                energy: z.number(),
+                inventory: z.array(z.number())
+              })
+              .openapi('Robot')
+          })
+        }
+      },
+      description: 'Status succesfully updated'
+    },
+    400: zod400,
+    404: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Robot with the specified ID not found'
+    },
+    409: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Item is not in Inventory of Robot'
+    }
   }
-);
+});
 
-/**
- * @swagger
- * /robot/{id}/actions:
- *   get:
- *     summary: Get robot actions
- *     description: Returns a list of all actions performed by the robot so far.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the robot
- *         schema:
- *           type: integer
- *       - in: query
- *         name: page
- *         required: false
- *         description: Page of action results
- *         schema:
- *           type: integer
- *           example: 1
- *       - in: query
- *         name: size
- *         required: false
- *         description: Number of actions per page
- *         schema:
- *           type: integer
- *           example: 5
- *     responses:
- *       200:
- *         description: Successful query of actions
- *       404:
- *         description: Robot with id {id} not found
- */
-router.get(
-  '/:id/actions',
-  zValidator(
-    'param',
-    z.object({
-      id: intAsString
-    })
-  ),
-  zValidator(
-    'query',
-    z.object({
+router.openapi(patchRobotState, (c) => {
+  const { id } = c.req.valid('param');
+  const robot = robots.find((r) => r.id === id);
+
+  if (!robot) {
+    return c.json({ message: `Robot with id ${id} not found` }, 404);
+  }
+
+  const { energy, position } = c.req.valid('json');
+  robot.updateState({ energy, position });
+  return c.json(
+    {
+      message: 'State updated',
+      robot: {
+        id: robot.id,
+        position: robot.position,
+        energy: robot.energy,
+        inventory: robot.inventory
+      }
+    },
+    200
+  );
+});
+
+const getActionList = createRoute({
+  method: 'get',
+  path: '/{id}/actions',
+  summary: 'Get list of robot actions',
+  description: 'Returns a list of all actions performed by the robot so far',
+  request: {
+    params: z.object({
+      id: intAsString.openapi({
+        param: {
+          name: 'id',
+          in: 'path'
+        },
+        example: '1'
+      })
+    }),
+    query: z.object({
       page: intAsString
         .refine((num) => z.number().int().gte(1).safeParse(num).success)
         .default('1'),
@@ -396,21 +498,55 @@ router.get(
         .refine((num) => z.number().int().gte(1).safeParse(num).success)
         .default('5')
     })
-  ),
-  (c) => {
-    const { id } = c.req.valid('param');
-
-    const robot = robots.find((r) => r.id === id);
-    if (!robot) {
-      return c.json({ message: `Robot with id ${id} not found` });
+  },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            page: z.number(),
+            size: z.number(),
+            totalActions: z.number(),
+            actions: z.array(z.object({ action: z.string() })),
+            links: z.object({
+              self: z.string(),
+              next: z.string(),
+              previous: z.string().nullable()
+            })
+          })
+        }
+      },
+      description: 'List of actions succesfully returned'
+    },
+    400: zod400,
+    404: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Robot with the specified ID not found'
     }
+  }
+});
 
-    const { page, size } = c.req.valid('query');
+router.openapi(getActionList, (c) => {
+  const { id } = c.req.valid('param');
 
-    const startIndex = (page - 1) * size;
-    const paginatedActions = robot.actions.slice(startIndex, startIndex + size);
+  const robot = robots.find((r) => r.id === id);
+  if (!robot) {
+    return c.json({ message: `Robot with id ${id} not found` }, 404);
+  }
 
-    return c.json({
+  const { page, size } = c.req.valid('query');
+
+  const startIndex = (page - 1) * size;
+  const paginatedActions = robot.actions.slice(startIndex, startIndex + size);
+
+  return c.json(
+    {
       page,
       size,
       totalActions: robot.actions.length,
@@ -423,67 +559,94 @@ router.get(
             ? `/robot/${robot.id}/actions?page=${page - 1}&size=${size}`
             : null
       }
-    });
-  }
-);
+    },
+    200
+  );
+});
 
-/**
- * @swagger
- * /robot/{id}/attack/{targetId}:
- *   post:
- *     summary: Attack another robot
- *     description: Executes an attack on another robot.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the attacking robot
- *         schema:
- *           type: integer
- *       - in: path
- *         name: targetId
- *         required: true
- *         description: ID of the attacked robot
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: Attack successfully executed
- *       400:
- *         description: Not enough energy to attack
- *       404:
- *         description: Robot with id {id} not found
- */
-router.post(
-  '/:id/attack/:targetId',
-  zValidator(
-    'param',
-    z.object({
-      id: intAsString,
-      targetId: intAsString
+const postAttackRobot = createRoute({
+  method: 'post',
+  path: '/{id}/attack/{targetId}',
+  summary: 'Attack another robot',
+  description: 'Executes an attack on another robot',
+  request: {
+    params: z.object({
+      id: intAsString.openapi({
+        param: {
+          name: 'id',
+          in: 'path'
+        },
+        example: '1'
+      }),
+      targetId: intAsString.openapi({
+        param: {
+          name: 'targetId',
+          in: 'path'
+        },
+        example: '2'
+      })
     })
-  ),
-  (c) => {
-    const { id, targetId } = c.req.valid('param');
-    const attacker = robots.find((r) => r.id === id);
-    const target = robots.find((r) => r.id === targetId);
-
-    if (!attacker || !target) {
-      return c.json(
-        { message: `Robot with id ${id} or id ${targetId} not found` },
-        404
-      );
+  },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string(),
+            attackerEnergy: z.number(),
+            targetEnergy: z.number()
+          })
+        }
+      },
+      description: 'Robot successfully attacked'
+    },
+    400: zod400,
+    404: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Robot with the specified ID not found'
+    },
+    409: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            message: z.string()
+          })
+        }
+      },
+      description: 'Not enough energy to attack'
     }
+  }
+});
 
-    try {
-      attacker.attack(target);
-      return c.json({
+router.openapi(postAttackRobot, (c) => {
+  const { id, targetId } = c.req.valid('param');
+  const attacker = robots.find((r) => r.id === id);
+  const target = robots.find((r) => r.id === targetId);
+
+  if (!attacker || !target) {
+    return c.json(
+      { message: `Robot with id ${id} or id ${targetId} not found` },
+      404
+    );
+  }
+
+  try {
+    attacker.attack(target);
+    return c.json(
+      {
         message: 'Attack executed',
         attackerEnergy: attacker.energy,
         targetEnergy: target.energy
-      });
-    } catch (error) {
-      return c.json({ message: (error as any).message }, 400);
-    }
+      },
+      200
+    );
+  } catch (error) {
+    return c.json({ message: (error as any).message }, 409);
   }
-);
+});
