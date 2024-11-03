@@ -4,12 +4,12 @@ Ein einfacher Microservice zur Steuerung eines Roboters in einer virtuellen Umge
 
 ## Setup
 
-Für dieses Projekt wurde Bun verwendet, eine schnelle JavaScript- und TypeScript-Laufzeitumgebung. Bun kombiniert einen JavaScript- und TypeScript-Compiler, einen Package Manager und einen Webserver in einem Tool. Dadurch lassen sich TypeScript-Dateien direkt ausführen, was das Setup vereinfacht und die Entwicklung beschleunigt. Mit der nativen Unterstützung für TypeScript erleichtert Bun die Erstellung von performanten und gut strukturierten Anwendungen.
+Für dieses Projekt wurde Bun verwendet, eine schnelle JavaScript- und TypeScript-Laufzeitumgebung. Bun kombiniert einen JavaScript- und TypeScript-Compiler, einen Package Manager und einen Webserver in einem Tool. Dadurch lassen sich TypeScript-Dateien direkt ausführen, was das Setup vereinfacht und die Entwicklung beschleunigt. 
 
 # Installation Windows
 
 Bun unterstützt Linux (x64 & arm64), macOS (x64 & Apple Silicon) und Windows (x64).
-Das Projekt wurde lediglich mit Windows getestet und über npm installiert, das Setup wurde der Dokumentation von bun entnommen (https://bun.sh/docs/installation).
+Das Projekt wurde lediglich mit Windows getestet, das Setup wurde der Dokumentation von bun entnommen (https://bun.sh/docs/installation).
 
 ```sh
 # für Windows
@@ -21,7 +21,7 @@ npm install -g bun
 
 ### Package Installation
 
-Um alle Abhängigkeiten eines Projekts zu installieren:
+Um alle Abhängigkeiten des Projekts zu installieren:
 
 ```sh
 bun install
