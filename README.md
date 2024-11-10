@@ -35,8 +35,8 @@ bun test                      # Unit Tests ausführen
 bun run devStart              # startet den Server
 ```
 
-Der Server wird standardmäßig auf http://localhost:3000 gestartet.
-Auf die API-Dokumentation kann über http://localhost:3000/api-docs zugegriffen werden.
+Der Server wird standardmäßig auf http://localhost:8080 gestartet.
+Auf die API-Dokumentation kann über http://localhost:8080/api-docs zugegriffen werden.
 
 ## Funktionsübersicht
 

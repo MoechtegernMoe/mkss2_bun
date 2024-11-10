@@ -11,7 +11,7 @@ app.use(logger());
 app.route('/robot', robotRouter);
 
 app.get('/api-docs', swaggerUI({ url: '/api.json' }));
-// app.get('/api.json', (c) => c.json(swaggerDocs));
+
 app.doc('/api.json', {
   openapi: '3.0.0',
   info: {
